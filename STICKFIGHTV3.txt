@@ -1,0 +1,335 @@
+local Players = game:GetService("Players")
+local LocalPlayer = Players.LocalPlayer
+local RunService = game:GetService("RunService")
+
+local toolsFolder = workspace:FindFirstChild("Tools")
+
+local function getToolColor(name)
+    local n = name:lower()
+    if n:find("sniper") or n:find("sks") or n:find("rifle")   then return Color3.fromRGB(100, 255, 100) end
+    if n:find("rocket") or n:find("launcher") or n:find("rpg") then return Color3.fromRGB(255, 80, 255)  end
+    if n:find("lava") or n:find("fire") or n:find("flame")     then return Color3.fromRGB(255, 120, 30)  end
+    if n:find("snake") or n:find("winged")                      then return Color3.fromRGB(180, 50, 255)  end
+    if n:find("wall") or n:find("beam") or n:find("laser")     then return Color3.fromRGB(50, 200, 255)  end
+    if n:find("deagle") or n:find("pistol") or n:find("gun")   then return Color3.fromRGB(255, 220, 80)  end
+    if n:find("sword") or n:find("spear") or n:find("blade")   then return Color3.fromRGB(255, 100, 100) end
+    if n:find("bomb") or n:find("grenade") or n:find("mine")   then return Color3.fromRGB(255, 50, 50)   end
+    if n:find("shield") or n:find("armor")                      then return Color3.fromRGB(100, 180, 255) end
+    if n:find("blaster")                                         then return Color3.fromRGB(255, 160, 50)  end
+    return Color3.fromRGB(255, 160, 100)
+end
+
+local function getToolPart(tool)
+    local h = tool:FindFirstChild("Handle")
+    if h then return h end
+    for _, c in ipairs(tool:GetChildren()) do
+        local cn = c.ClassName
+        if cn == "Part" or cn == "MeshPart" or cn == "UnionOperation" or cn == "WedgePart" then return c end
+    end
+    for _, d in ipairs(tool:GetDescendants()) do
+        local cn = d.ClassName
+        if cn == "Part" or cn == "MeshPart" or cn == "UnionOperation" then return d end
+    end
+    local ok = pcall(function() local _ = tool.Position end)
+    if ok then return tool end
+    return nil
+end
+
+local knownTools = {}
+local recentSpawns = {}
+local oofArrows = {}
+
+RunService.Heartbeat:Connect(function()
+    if not toolsFolder or not toolsFolder.Parent then
+        toolsFolder = workspace:FindFirstChild("Tools")
+        if toolsFolder then knownTools = {} end
+    end
+    if not toolsFolder then return end
+
+    local current = {}
+    for _, t in ipairs(toolsFolder:GetChildren()) do
+        local key = t.Name .. "_" .. tostring(t)
+        current[key] = true
+        if not knownTools[key] then
+            knownTools[key] = t
+            recentSpawns[key] = tick()
+            pcall(function() notify("NEW GUN: " .. t.Name, "StickFight", 3) end)
+        end
+    end
+
+    for key in pairs(knownTools) do
+        if not current[key] then
+            knownTools[key] = nil
+            recentSpawns[key] = nil
+            if oofArrows[key] then
+                pcall(function() oofArrows[key].glow:Remove() end)
+                pcall(function() oofArrows[key].arr:Remove() end)
+                oofArrows[key] = nil
+            end
+        end
+    end
+end)
+
+RunService.RenderStepped:Connect(function()
+    for key, spawnTime in pairs(recentSpawns) do
+        local elapsed = tick() - spawnTime
+        local tool = knownTools[key]
+        
+        if elapsed > 2.5 or not tool then
+            if oofArrows[key] then 
+                oofArrows[key].arr.Visible = false
+                oofArrows[key].glow.Visible = false 
+            end
+            continue
+        end
+        
+        local part = getToolPart(tool)
+        local pos = part and part.Position or nil
+        if not pos then
+            if oofArrows[key] then 
+                oofArrows[key].arr.Visible = false
+                oofArrows[key].glow.Visible = false 
+            end
+            continue
+        end
+        
+        if not oofArrows[key] then
+            local c = getToolColor(tool.Name)
+            
+            local glow = Drawing.new("Text")
+            glow.Size = 36
+            glow.Font = 2
+            glow.Center = true
+            glow.Outline = false
+            glow.Color = c
+            glow.Transparency = 0.4
+            
+            local arr = Drawing.new("Text")
+            arr.Size = 32
+            arr.Font = 2
+            arr.Center = true
+            arr.Outline = true
+            arr.Color = c
+
+            local landY = pos.Y - 50
+            local mapFolder = workspace:FindFirstChild("Map") or workspace
+            for _, p in ipairs(mapFolder:GetDescendants()) do
+                if p:IsA("BasePart") and not p:IsDescendantOf(tool) then
+                    pcall(function()
+                        if not p.Parent:FindFirstChild("Humanoid") then
+                            local pPos = p.Position
+                            local pSize = p.Size
+                            local dx = math.abs(pPos.X - pos.X)
+                            local dz = math.abs(pPos.Z - pos.Z)
+                            if dx < (pSize.X/2 + 2) and dz < (pSize.Z/2 + 2) then
+                                local topY = pPos.Y + pSize.Y/2
+                                if topY < pos.Y and topY > landY then
+                                    landY = topY
+                                end
+                            end
+                        end
+                    end)
+                end
+            end
+            local landPos = Vector3.new(pos.X, landY, pos.Z)
+            
+            oofArrows[key] = { arr = arr, glow = glow, landPos = landPos }
+        end
+        
+        local arr = oofArrows[key].arr
+        local glow = oofArrows[key].glow
+        local landPos = oofArrows[key].landPos
+        
+        local sp, on = nil, false
+        pcall(function() sp, on = WorldToScreen(landPos) end)
+        
+        if sp and on then
+            arr.Text = "!" 
+            glow.Text = "!"
+            
+            -- Bounce animation only
+            local floatOffset = math.sin(tick() * 4) * 6
+            local basePos = Vector2.new(sp.X, sp.Y - 16 + floatOffset)
+            
+            arr.Position = basePos
+            glow.Position = basePos
+            
+            arr.Visible = true
+            glow.Visible = true
+        else
+            arr.Visible = false
+            glow.Visible = false
+        end
+    end
+end)
+
+local function getPlayerHealth(char)
+    local hpVal = char:FindFirstChild("HP")
+    if hpVal then
+        local hp = nil
+        pcall(function() hp = hpVal.Value end)
+        if hp then return hp, 100 end
+    end
+    pcall(function()
+        for _, child in ipairs(char:GetChildren()) do
+            if (child.ClassName == "IntValue" or child.ClassName == "NumberValue") and (child.Name:lower():find("hp") or child.Name:lower():find("health")) then
+                return child.Value, 100
+            end
+        end
+    end)
+    return nil, nil
+end
+
+local function getPlayerRoot(char)
+    local root = char:FindFirstChild("HumanoidRootPart") or char:FindFirstChild("Head") or char:FindFirstChild("Torso")
+    if root then return root end
+    for _, c in ipairs(char:GetChildren()) do
+        if c.ClassName == "Part" or c.ClassName == "MeshPart" then return c end
+    end
+    return nil
+end
+
+local function getEquippedToolInfo(char)
+    local toolNode = char:FindFirstChild("Tool")
+    if not toolNode then return nil, nil, nil end
+
+    local weaponModel = nil
+    local ammoCount = nil
+
+    pcall(function()
+        for _, child in ipairs(toolNode:GetChildren()) do
+            if child.Name ~= "OldToolWeld" and child.Name ~= "ToolWeld" then
+                local fetchedAmmo = child:GetAttribute("Ammo")
+                if fetchedAmmo ~= nil then
+                    ammoCount = fetchedAmmo
+                    weaponModel = child
+                    return
+                end
+            end
+        end
+    end)
+
+    if not weaponModel or ammoCount == nil then return nil, nil, nil end
+
+    local gunPos = nil
+    pcall(function()
+        if weaponModel:IsA("Model") and weaponModel.PrimaryPart then
+            gunPos = weaponModel.PrimaryPart.Position
+        else
+            for _, v in ipairs(weaponModel:GetDescendants()) do
+                if v:IsA("BasePart") then
+                    gunPos = v.Position
+                    break
+                end
+            end
+        end
+    end)
+
+    if not gunPos then
+        pcall(function()
+            local arm = char:FindFirstChild("Right Arm") or char:FindFirstChild("RightHand")
+            if arm then gunPos = arm.Position end
+        end)
+    end
+
+    return weaponModel.Name, ammoCount, gunPos
+end
+
+local plrEsp = {}
+local function createPlrEsp()
+    local hpText = Drawing.new("Text")
+    hpText.Size = 12; hpText.Center = true; hpText.Outline = true; hpText.Visible = false; hpText.Font = 2
+    local barBg = Drawing.new("Line")
+    barBg.Thickness = 4; barBg.Visible = false; barBg.Color = Color3.fromRGB(40, 40, 40)
+    local barFg = Drawing.new("Line")
+    barFg.Thickness = 3; barFg.Visible = false
+    
+    local ammoText = Drawing.new("Text")
+    ammoText.Size = 14; ammoText.Center = true; ammoText.Outline = true; ammoText.Visible = false; ammoText.Font = 2; ammoText.Color = Color3.fromRGB(255, 255, 255)
+    
+    return { hpText = hpText, barBg = barBg, barFg = barFg, ammoText = ammoText }
+end
+
+local function healthColor(ratio)
+    local r = math.floor(255 * (1 - ratio))
+    local g = math.floor(255 * ratio)
+    return Color3.fromRGB(r, g, 0)
+end
+
+RunService.RenderStepped:Connect(function()
+    local alive = {}
+    for _, plr in ipairs(Players:GetPlayers()) do
+        if plr == LocalPlayer then continue end
+        local char = plr.Character
+        if not char then continue end
+        local root = getPlayerRoot(char)
+        if not root then continue end
+        alive[plr] = true
+
+        local pos = nil
+        pcall(function() pos = root.Position end)
+        if not pos then continue end
+
+        local sp, on = nil, false
+        pcall(function() sp, on = WorldToScreen(pos + Vector3.new(0, 3, 0)) end)
+        
+        if not plrEsp[plr] then plrEsp[plr] = createPlrEsp() end
+        local ds = plrEsp[plr]
+
+        if on then
+            local hp, maxhp = getPlayerHealth(char)
+            local ratio = (hp and maxhp and maxhp > 0) and math.clamp(hp / maxhp, 0, 1) or 1
+            if hp and hp > 0 then
+                ds.hpText.Text = tostring(math.floor(hp))
+                ds.hpText.Position = Vector2.new(sp.X, sp.Y - 10)
+                ds.hpText.Color = healthColor(ratio)
+                ds.hpText.Visible = true
+
+                ds.barBg.From = Vector2.new(sp.X - 20, sp.Y + 6)
+                ds.barBg.To = Vector2.new(sp.X + 20, sp.Y + 6)
+                ds.barBg.Visible = true
+
+                ds.barFg.From = Vector2.new(sp.X - 20, sp.Y + 6)
+                ds.barFg.To = Vector2.new(sp.X - 20 + (40 * ratio), sp.Y + 6)
+                ds.barFg.Color = healthColor(ratio)
+                ds.barFg.Visible = true
+            else
+                ds.hpText.Visible = false
+                ds.barBg.Visible = false
+                ds.barFg.Visible = false
+            end
+            
+            local toolName, ammoCount, gunPos = getEquippedToolInfo(char)
+            if toolName and ammoCount ~= nil and gunPos then
+                local gSp, gOn = nil, false
+                pcall(function() gSp, gOn = WorldToScreen(gunPos) end)
+                
+                if gSp and gOn then
+                    ds.ammoText.Text = tostring(math.floor(ammoCount))
+                    ds.ammoText.Position = Vector2.new(gSp.X, gSp.Y - 6)
+                    ds.ammoText.Color = Color3.fromRGB(255, 255, 255)
+                    ds.ammoText.Visible = true
+                else
+                    ds.ammoText.Visible = false
+                end
+            else
+                ds.ammoText.Visible = false
+            end
+        else
+            ds.hpText.Visible = false
+            ds.barBg.Visible = false
+            ds.barFg.Visible = false
+            ds.ammoText.Visible = false
+        end
+    end
+
+    for plr, ds in pairs(plrEsp) do
+        if not alive[plr] then
+            pcall(function() ds.hpText:Remove() end)
+            pcall(function() ds.barBg:Remove() end)
+            pcall(function() ds.barFg:Remove() end)
+            pcall(function() ds.ammoText:Remove() end)
+            plrEsp[plr] = nil
+        end
+    end
+end)
